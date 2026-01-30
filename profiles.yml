@@ -1,0 +1,17 @@
+athena:
+  target: dev
+
+  outputs:
+    dev:
+      type: athena
+      aws_profile_name: dev
+      work_group: primary
+      database: awsdatacatalog
+      schema: template
+      region_name: ap-northeast-2
+      s3_data_dir: s3://blueriver97-datalake/iceberg/datamart
+      s3_tmp_table_dir: s3://blueriver97-datalake/athena-result/dbt/tmp
+      s3_staging_dir: s3://blueriver97-datalake/athena-result/dbt/staging
+      s3_data_naming: schema_table
+      debug_query_state: true
+      threads: 1

@@ -39,3 +39,6 @@ coverage/
 # Linux 시스템에서 생성되는 파일들
 *~
 *.swp
+
+# DBT
+.user.yml
