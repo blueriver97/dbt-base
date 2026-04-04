@@ -28,17 +28,23 @@ clean-targets: # directories to be removed by `dbt clean`
 # In this example config, we tell dbt to build all models in the example/
 # directory as views. These settings can be overridden in the individual model
 # files using the `{{ config(...) }}` macro.
+seeds:
+  template:
+    +schema: bronze
+    +file_format: parquet
+    +table_type: iceberg
+
 models:
   template:
     # Config indicated by + and applies to all files under models/example/
     bronze:
-      schema: gold
+      schema: bronze
       +materialized: table
       +persist_docs:
         relation: true
         columns: true
     silver:
-      schema: gold
+      schema: silver
       +materialized: table
       +persist_docs:
         relation: true
