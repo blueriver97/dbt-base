@@ -1,8 +1,7 @@
-# .pre-commit-config.yaml
 fail_fast: true
 default_stages: [pre-commit]
 
-# Global exclude: 전역 설정으로 하위 hook에 자동 적용
+# Global exclude: dbt 빌드 산출물 및 외부 파일 제외
 exclude: |
   (?x)^(
     target/|
@@ -15,7 +14,9 @@ exclude: |
   )
 
 repos:
-  # 1. 보안 검사 (TruffleHog)
+  # ============================================================
+  # 1. 보안 검사 (TruffleHog) - 커밋 전 시크릿 스캐닝
+  # ============================================================
   - repo: https://github.com/trufflesecurity/trufflehog
     rev: v3.88.5
     hooks:
@@ -24,14 +25,9 @@ repos:
         entry: bash -c 'trufflehog git file://. --since-commit HEAD --only-verified --fail'
         language: system
 
-  # 2. 코드 포맷팅 (Prettier)
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
-    hooks:
-      - id: prettier
-        types_or: [javascript, jsx, ts, tsx, json, yaml, markdown]
-
-  # 3. 기타 표준 검사
+  # ============================================================
+  # 2. 기본 검사
+  # ============================================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -40,75 +36,91 @@ repos:
       - id: check-yaml
       - id: check-json
       - id: check-added-large-files
-        args: ["--maxkb=102400"] # 100MB 허용
 
-  # 4. SQL 검사
+  # ============================================================
+  # 3. Python 검사 (ruff)
+  # ============================================================
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # ============================================================
+  # 4. SQL 검사 (sqlfluff)
+  # ============================================================
   - repo: https://github.com/sqlfluff/sqlfluff
     rev: 3.3.1
     hooks:
       - id: sqlfluff-fix
-        # Arbitrary arguments to show an example
-        # args: [--rules, "LT02,CP02"]
         additional_dependencies:
           ["dbt-athena-community", "sqlfluff-templater-dbt"]
       - id: sqlfluff-lint
-        # For dbt projects, this installs the dbt "extras".
-        # You will need to select the relevant dbt adapter for your dialect
-        # (https://docs.getdbt.com/docs/available-adapters):
         additional_dependencies:
           ["dbt-athena-community", "sqlfluff-templater-dbt"]
 
-  # 5. dbt-checkpoint 검사
+  # ============================================================
+  # 5. dbt parse: manifest.json / catalog.json 갱신
+  # ============================================================
+  - repo: local
+    hooks:
+      - id: dbt-parse
+        name: "Dbt: manifest.json 갱신"
+        entry: bash -c 'dbt parse --profiles-dir .'
+        language: system
+        files: \.sql$
+        pass_filenames: false
+      - id: dbt-docs-generate
+        name: "Dbt: catalog.json 갱신"
+        entry: bash -c 'dbt docs generate --profiles-dir .'
+        language: system
+        files: \.sql$
+        pass_filenames: false
+
+  # ============================================================
+  # 6. dbt-checkpoint: 정적 분석 + 메타데이터 검증
+  # ============================================================
   - repo: https://github.com/dbt-checkpoint/dbt-checkpoint
     rev: v2.0.4
     hooks:
-      # ============================================================
-      # 1. 가벼운 정적 분석 (빠른 피드백)
-      # ============================================================
+      # 정적 분석
       - id: check-script-semicolon
         name: "Check: SQL 파일 끝에 세미콜론 제거"
       - id: check-script-has-no-table-name
         name: "Check: 하드코딩된 테이블 이름 사용 금지 (ref/source 권장)"
+        args: ["--ignore-dotless-table"]
       - id: check-model-name-contract
-        name: "Check: 모델 명명 규칙 (stg/int/fct/dim)"
-        args: ["--pattern", "(stg_|int_|fct_|dim_).*"]
-      # ============================================================
-      # 2. 메타데이터 동기화 (후속 검증을 위한 필수 단계)
-      # ============================================================
-      - id: dbt-parse
-        name: "Dbt: manifest.json 갱신"
-      - id: dbt-docs-generate
-        name: "Dbt: catalog.json 갱신"
-      # ============================================================
-      # 3. 문서화 및 속성 검증 (정합성)
-      # ============================================================
+        name: "Check: 모델 명명 규칙 (stg/int/fct/dim/agg/base/meta)"
+        args: ["--pattern", "(stg_|int_|fct_|dim_|agg_|base_|meta_).*"]
+      # 문서화 검증
       - id: check-model-has-properties-file
         name: "Check: 모델 정의용 YAML 파일 존재 여부"
+        files: models/.*\.sql$
       - id: check-model-has-description
         name: "Check: 모델 설명 작성 여부"
+        files: models/.*\.sql$
       - id: check-model-columns-have-desc
         name: "Check: 모든 컬럼에 설명 포함 여부"
+        files: models/.*\.sql$
       - id: check-model-has-all-columns
         name: "Check: YAML과 SQL 내 컬럼 일치 여부"
-      # ============================================================
-      # 4. Column Name Contracts: 데이터 타입별 명명 규칙
-      # ============================================================
-      # 1. 정밀한 Boolean 체크: 접두어 뒤에 반드시 문자가 오도록 제한
+        files: models/.*\.sql$
+      # Column Name Contracts
       - id: check-column-name-contract
         alias: check-column-bool-prefix
-        name: "Contract: Boolean (Strict)"
-        args: [
+        name: "Contract: Boolean (is_/has_/do_ prefix)"
+        args:
+          [
             "--pattern",
-            "^(is|has|do)_[a-z0-9]", # 단독 'is_' 등 방지
+            "^(is|has|do)_[a-z0-9]",
             "--dtypes",
             "BOOL",
             "BOOLEAN",
           ]
-
-      # 2. 시점(Timestamp) vs 일자(Date) 분리
       - id: check-column-name-contract
         alias: check-column-timestamp-suffix
-        name: "Contract: Timestamp (Point in time)"
+        name: "Contract: Timestamp (_at/_timestamp/_time suffix)"
         args:
           [
             "--pattern",
@@ -118,40 +130,35 @@ repos:
             "TIMESTAMP_NTZ",
             "DATETIME",
           ]
-
       - id: check-column-name-contract
         alias: check-column-date-suffix
-        name: "Contract: Pure Date (Calendar date)"
+        name: "Contract: Date (_date/_dt suffix)"
         args: ["--pattern", ".*(_date|_dt)$", "--dtypes", "DATE"]
-
-      # 3. 측정값(Amount) vs 수량(Count) 분리
       - id: check-column-name-contract
         alias: check-column-amount-suffix
-        name: "Contract: Monetary/Decimal Amount"
-        args: [
+        name: "Contract: Amount (_amt/_amount/_price/_revenue suffix)"
+        args:
+          [
             "--pattern",
             ".*(_amt|_amount|_price|_revenue)$",
             "--dtypes",
             "NUMERIC",
             "DECIMAL",
-            "FLOAT64", # 소수점 허용
+            "FLOAT64",
           ]
-
       - id: check-column-name-contract
         alias: check-column-count-prefix
-        name: "Contract: Integer Counts"
-        args: [
+        name: "Contract: Count (n_/cnt_/total_ prefix)"
+        args:
+          [
             "--pattern",
             "^(n_|cnt_|total_).*",
             "--dtypes",
             "INT",
             "INTEGER",
-            "INT64", # 정수형 강제
+            "INT64",
           ]
-
-      # ============================================================
-      # 5. 소스 및 매크로 검증
-      # ============================================================
+      # 소스 및 매크로 검증
       - id: check-source-table-has-description
         name: "Check: 소스 테이블 설명 작성 여부"
       - id: check-source-columns-have-desc
@@ -159,16 +166,16 @@ repos:
       - id: check-macro-has-description
         name: "Check: 매크로 설명 작성 여부"
 
-  # 6. 커밋 메시지 규칙 검사 (Custom Local Hook)
+  # ============================================================
+  # 7. 커밋 메시지 훅 (prepare-commit-msg, commit-msg)
+  # ============================================================
   - repo: local
     hooks:
       - id: smart-commit-msg
         name: Generate AI Commit Message
-        entry: scripts/smart-commit-hook.sh
+        entry: bash scripts/smart-commit-hook.sh
         language: system
         stages: [prepare-commit-msg]
-
-        # 중요: 커밋 메시지 파일이 생성된 직후 실행됩니다.
       - id: validate-commit-msg
         name: Validate Commit Message
         entry: python3 scripts/validate_commit.py

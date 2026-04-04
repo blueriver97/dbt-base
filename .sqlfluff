@@ -2,7 +2,7 @@
 # 지원되는 방언들: https://docs.sqlfluff.com/en/stable/perma/dialects.html
 dialect = athena
 
-templater = jinja
+templater = dbt
 
 max_line_length = 120
 processes = -1
@@ -10,6 +10,7 @@ exclude_rules = ambiguous.column_count, structure.column_order, RF01, RF02, RF04
 
 [sqlfluff:templater:dbt]
 project_dir = ./
+profiles_dir = ./
 
 ;[sqlfluff:layout:type:comma]
 ;line_position = leading
