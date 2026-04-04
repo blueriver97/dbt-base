@@ -10,7 +10,8 @@ exclude: |
     logs/|
     .*/target/|
     .*/dbt_packages/|
-    superset-query/
+    superset-query/|
+    tests/
   )
 
 repos:
